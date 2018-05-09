@@ -47,7 +47,7 @@ import           Pos.Slotting (MonadSlots)
 import           Pos.Ssc (MonadSscMem, noReportNoSecretsForEpoch1, sscCalculateSeed)
 import           Pos.Ssc.Message (SscMessageConstraints)
 import qualified Pos.Txp.DB.Stakes as GS (stakeSource)
-import           Pos.Update.DB (getCompetingBVStates)
+import           Pos.Update.DB (getCompetingBVStates, getAdoptedBVFull)
 import           Pos.Update.Poll.Types (BlockVersionState (..))
 import           Pos.Util (maybeThrow)
 import           Pos.Util.Chrono (NE, NewestFirst (..), toOldestFirst)
@@ -176,7 +176,9 @@ lrcDo epoch consumers = do
         then coerce (nonEmpty @a) l
         else Nothing
 
-    applyBack blunds = applyBlocksUnsafe scb blunds Nothing
+    applyBack blunds = do
+        (bv, bvd) <- getAdoptedBVFull
+        applyBlocksUnsafe bv bvd scb blunds Nothing
     upToGenesis b = b ^. epochIndexL >= epoch
     whileAfterCrucial b = getEpochOrSlot b > crucial
     crucial = EpochOrSlot $ Right $ crucialSlot epoch

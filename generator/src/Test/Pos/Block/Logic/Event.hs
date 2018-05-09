@@ -19,7 +19,7 @@ import qualified Data.Map as Map
 import qualified Data.Text as T
 import qualified GHC.Exts as IL
 
-import           Pos.Block.Logic.VAR (BlockLrcMode, rollbackBlocks, verifyAndApplyBlocks)
+import           Pos.Block.Logic.VAR (BlockLrcMode, getVerifyBlocksContext', rollbackBlocks, verifyAndApplyBlocks)
 import           Pos.Block.Types (Blund)
 import           Pos.Core (HasConfiguration, HeaderHash, EpochOrSlot (..), getEpochOrSlot)
 import           Pos.Core.Slotting (SlotId)
@@ -74,9 +74,11 @@ verifyAndApplyBlocks' blunds = do
                     $ blunds of
                 [] -> Nothing
                 ss -> Just $ maximum ss
+    ctx <- getVerifyBlocksContext' curSlot
+
     satisfySlotCheck blocks $ do
         (_ :: HeaderHash, _) <- eitherToThrow =<<
-            verifyAndApplyBlocks curSlot True blocks
+            verifyAndApplyBlocks ctx True blocks
         return ()
   where
     blocks = fst <$> blunds

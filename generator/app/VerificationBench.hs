@@ -20,7 +20,7 @@ import           Mockable.CurrentTime (realTime)
 import           Pos.AllSecrets (mkAllSecretsSimple)
 import           Pos.Binary.Class (serialize, decodeFull)
 import           Pos.Block.Error (ApplyBlocksException, VerifyBlocksException)
-import           Pos.Block.Logic.VAR (verifyAndApplyBlocks, verifyBlocksPrefix, rollbackBlocks)
+import           Pos.Block.Logic.VAR (getVerifyBlocksContext', verifyAndApplyBlocks, verifyBlocksPrefix, rollbackBlocks)
 import           Pos.Core (Block, headerHash)
 import           Pos.Core.Common (BlockCount (..), unsafeCoinPortionFromDouble)
 import           Pos.Core.Configuration (genesisBlockVersionData, genesisData, genesisSecretKeys)
@@ -29,7 +29,6 @@ import           Pos.Core.Slotting (Timestamp (..))
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.Generator.Block (BlockGenParams (..), TxGenParams (..), genBlocksNoApply)
 import           Pos.Launcher.Configuration (ConfigurationOptions (..), HasConfigurations, defaultConfigurationOptions, withConfigurationsM)
-import           Pos.Slotting (MonadSlots (getCurrentSlot))
 import           Pos.Txp.Logic.Global (txpGlobalSettings)
 import           Pos.Util.Chrono (OldestFirst (..), NE, nonEmptyNewestFirst)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo, retrieveCompileTimeInfo)
@@ -248,7 +247,7 @@ main = do
         validate blocks = do
             verStart <- realTime
             -- omitting current slot for simplicity
-            ctx <- getCurrentSlot
+            ctx <- getVerifyBlocksContext' Nothing
             res <- (force . either Left (Right . fst)) <$> verifyBlocksPrefix ctx blocks
             verEnd <- realTime
             return (verEnd - verStart, either (Just . Left) (const Nothing) res)
@@ -261,7 +260,7 @@ main = do
             -> BlockTestMode (Microsecond, Maybe (Either VerifyBlocksException ApplyBlocksException))
         validateAndApply blocks = do
             verStart <- realTime
-            ctx <- getCurrentSlot
+            ctx <- getVerifyBlocksContext' Nothing
             res <- force <$> verifyAndApplyBlocks ctx False blocks
             verEnd <- realTime
             case res of

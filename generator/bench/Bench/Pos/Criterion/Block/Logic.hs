@@ -16,7 +16,7 @@ import           Serokell.Util.Verify (isVerSuccess)
 import           Mockable.CurrentTime (realTime)
 
 import           Pos.AllSecrets (mkAllSecretsSimple)
-import           Pos.Block.Logic.VAR (verifyAndApplyBlocks, verifyBlocksPrefix, rollbackBlocks)
+import           Pos.Block.Logic.VAR (VerifyBlocksContext (..), getVerifyBlocksContext, verifyAndApplyBlocks, verifyBlocksPrefix, getVerifyBlocksContext', rollbackBlocks)
 import           Pos.Block.Logic.Integrity (VerifyHeaderParams (..), verifyHeader)
 import           Pos.Core (Block, BlockHeader, EpochOrSlot (..), SlotId, getBlockHeader)
 import           Pos.Core.Class (epochIndexL, getEpochOrSlot)
@@ -84,14 +84,14 @@ verifyBlocksBenchmark
 verifyBlocksBenchmark !tp !ctx =
     bgroup "block verification"
         [ env (runBlockTestMode tp (genEnv (BlockCount 100)))
-            $ \ ~(curSlot, blocks) -> bench "verifyAndApplyBlocks" (verifyAndApplyBlocksB curSlot blocks)
+            $ \ ~(ctx, blocks) -> bench "verifyAndApplyBlocks" (verifyAndApplyBlocksB ctx blocks)
         -- `verifyBlocksPrefix` will succeed only on the first block, it
         -- requires that blocks are applied.
         , env (runBlockTestMode tp (genEnv (BlockCount 1)))
-            $ \ ~(curSlot, blocks) -> bench "verifyBlocksPrefix" (verifyBlocksPrefixB curSlot blocks)
+            $ \ ~(ctx, blocks) -> bench "verifyBlocksPrefix" (verifyBlocksPrefixB ctx blocks)
         ]
     where
-    genEnv :: BlockCount -> BlockTestMode (Maybe SlotId, OldestFirst NE Block)
+    genEnv :: BlockCount -> BlockTestMode (VerifyBlocksContext, OldestFirst NE Block)
     genEnv bCount = do
         initNodeDBs
         g <- liftIO $ newStdGen
@@ -119,20 +119,22 @@ verifyBlocksBenchmark !tp !ctx =
                     $ bs of
                     [] -> Nothing
                     ss -> Just $ maximum ss
-        return $ (curSlot, OldestFirst $ NE.fromList bs)
+        ctx <- getVerifyBlocksContext' curSlot
+        return $ ( ctx
+                 , OldestFirst $ NE.fromList bs)
 
     verifyAndApplyBlocksB
         :: ( HasConfigurations
            , HasCompileInfo
            )
-        => Maybe SlotId
+        => VerifyBlocksContext
         -> OldestFirst NE Block
         -> Benchmarkable
-    verifyAndApplyBlocksB curSlot blocks =
+    verifyAndApplyBlocksB verifyBlocksCtx blocks =
         nfIO
             $ runBTM tp ctx
             $ do
-                verifyAndApplyBlocks curSlot False blocks >>= \case
+                verifyAndApplyBlocks verifyBlocksCtx False blocks >>= \case
                     Left err -> return (Just err)
                     Right (_, blunds) -> do
                         whenJust (nonEmptyNewestFirst blunds) rollbackBlocks
@@ -142,13 +144,13 @@ verifyBlocksBenchmark !tp !ctx =
         :: ( HasConfigurations
            , HasCompileInfo
            )
-        => Maybe SlotId
+        => VerifyBlocksContext
         -> OldestFirst NE Block
         -> Benchmarkable
-    verifyBlocksPrefixB curSlot blocks =
+    verifyBlocksPrefixB verifyBlocksCtx blocks =
         nfIO
             $ runBTM tp ctx
-            $ map fst <$> verifyBlocksPrefix curSlot blocks
+            $ map fst <$> verifyBlocksPrefix verifyBlocksCtx blocks
 
 -- | Benchmark which runs `verifyHeader`
 verifyHeaderBenchmark

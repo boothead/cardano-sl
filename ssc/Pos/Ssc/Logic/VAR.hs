@@ -73,9 +73,10 @@ type SscGlobalApplyMode ctx m = SscGlobalVerifyMode ctx m
 -- All blocks must be from the same epoch.
 sscVerifyBlocks ::
        forall ctx m. SscGlobalVerifyMode ctx m
-    => OldestFirst NE SscBlock
+    => BlockVersionData
+    -> OldestFirst NE SscBlock
     -> m (Either SscVerifyError SscGlobalState)
-sscVerifyBlocks blocks = do
+sscVerifyBlocks bvd blocks = do
     let epoch = blocks ^. _Wrapped . _neHead . epochIndexL
     let lastEpoch = blocks ^. _Wrapped . _neLast . epochIndexL
     let differentEpochsMsg =
@@ -86,7 +87,6 @@ sscVerifyBlocks blocks = do
     inAssertMode $ unless (epoch == lastEpoch) $
         assertionFailed differentEpochsMsg
     richmenSet <- getSscRichmen "sscVerifyBlocks" epoch
-    bvd <- gsAdoptedBVData
     globalVar <- sscGlobal <$> askSscMem
     gs <- atomically $ readTVar globalVar
     res <-
@@ -109,18 +109,19 @@ sscVerifyBlocks blocks = do
 sscApplyBlocks
     :: forall ctx m.
        SscGlobalApplyMode ctx m
-    => OldestFirst NE SscBlock
+    => BlockVersionData
+    -> OldestFirst NE SscBlock
     -> Maybe SscGlobalState
     -> m [SomeBatchOp]
-sscApplyBlocks blocks (Just newState) = do
+sscApplyBlocks bvd blocks (Just newState) = do
     inAssertMode $ do
         let hashes = map headerHash blocks
-        expectedState <- sscVerifyValidBlocks blocks
+        expectedState <- sscVerifyValidBlocks bvd blocks
         if | newState == expectedState -> pass
            | otherwise -> onUnexpectedVerify hashes
     sscApplyBlocksFinish newState
-sscApplyBlocks blocks Nothing =
-    sscApplyBlocksFinish =<< sscVerifyValidBlocks blocks
+sscApplyBlocks bvd blocks Nothing =
+    sscApplyBlocksFinish =<< sscVerifyValidBlocks bvd blocks
 
 sscApplyBlocksFinish
     :: forall ctx m . SscGlobalApplyMode ctx m
@@ -135,9 +136,10 @@ sscApplyBlocksFinish gs = do
 sscVerifyValidBlocks
     :: forall ctx m.
        SscGlobalApplyMode ctx m
-    => OldestFirst NE SscBlock -> m SscGlobalState
-sscVerifyValidBlocks blocks =
-    sscVerifyBlocks blocks >>= \case
+    => BlockVersionData
+    -> OldestFirst NE SscBlock -> m SscGlobalState
+sscVerifyValidBlocks bvd blocks =
+    sscVerifyBlocks bvd blocks >>= \case
         Left e -> onVerifyFailedInApply hashes e
         Right newState -> return newState
   where

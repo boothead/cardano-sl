@@ -14,6 +14,11 @@ module Pos.Block.Logic.Internal
        , MonadBlockApply
        , MonadMempoolNormalization
 
+         -- Verfication context
+       , VerifyBlocksContext(..)
+       , getVerifyBlocksContext
+       , getVerifyBlocksContext'
+
        , applyBlocksUnsafe
        , normalizeMempool
        , rollbackBlocksUnsafe
@@ -25,6 +30,8 @@ module Pos.Block.Logic.Internal
        ) where
 
 import           Universum
+import           GHC.Generics (Generic)
+import           Control.DeepSeq (NFData)
 
 import           Control.Lens (each, _Wrapped)
 import qualified Crypto.Random as Rand
@@ -37,7 +44,8 @@ import           Pos.Block.BListener (MonadBListener)
 import           Pos.Block.Slog (BypassSecurityCheck (..), MonadSlogApply, MonadSlogBase,
                                  ShouldCallBListener, slogApplyBlocks, slogRollbackBlocks)
 import           Pos.Block.Types (Blund, Undo (undoDlg, undoTx, undoUS))
-import           Pos.Core (ComponentBlock (..), HasConfiguration, IsGenesisHeader, epochIndexL,
+import           Pos.Core (BlockVersion, BlockVersionData, ComponentBlock (..),
+                           HasConfiguration, IsGenesisHeader, epochIndexL,
                            gbHeader, headerHash, mainBlockDlgPayload, mainBlockSscPayload,
                            mainBlockTxPayload, mainBlockUpdatePayload)
 import           Pos.Core.Block (Block, GenesisBlock, MainBlock)
@@ -50,6 +58,7 @@ import           Pos.Exception (assertionFailed)
 import           Pos.GState.SanityCheck (sanityCheckDB)
 import           Pos.Lrc.Context (HasLrcContext)
 import           Pos.Reporting (MonadReporting)
+import           Pos.Slotting (MonadSlots (getCurrentSlot), SlotId)
 import           Pos.Ssc.Configuration (HasSscConfiguration)
 import           Pos.Ssc.Logic (sscApplyBlocks, sscNormalize, sscRollbackBlocks)
 import           Pos.Ssc.Mem (MonadSscMem)
@@ -57,6 +66,7 @@ import           Pos.Ssc.Types (SscBlock)
 import           Pos.Txp.MemState (MonadTxpLocal (..))
 import           Pos.Txp.Settings (TxpBlock, TxpBlund, TxpGlobalSettings (..))
 import           Pos.Update (UpdateBlock)
+import           Pos.Update.DB (getAdoptedBVFull)
 import           Pos.Update.Context (UpdateContext)
 import           Pos.Update.Logic (usApplyBlocks, usNormalize, usRollbackBlocks)
 import           Pos.Update.Poll (PollModifier)
@@ -87,6 +97,35 @@ type MonadBlockBase ctx m
 
 -- | Set of constraints necessary for high-level block verification.
 type MonadBlockVerify ctx m = MonadBlockBase ctx m
+
+-- | Initial context for `verifyBlocksPrefix` which runs in `MonadBlockVerify`
+-- monad.
+data VerifyBlocksContext = VerifyBlocksContext
+    { vbcCurrentSlot       :: !(Maybe SlotId)
+      -- ^ used to check if headers are not from future
+    , vbcBlockVersion      :: !BlockVersion
+    , vbcBlockVersionData  :: !BlockVersionData
+    } deriving (Generic)
+
+instance NFData VerifyBlocksContext
+
+getVerifyBlocksContext
+    :: forall ctx m.
+       (MonadSlots ctx m, MonadDBRead m)
+    => m VerifyBlocksContext
+getVerifyBlocksContext = do
+    curSlot <- getCurrentSlot
+    getVerifyBlocksContext' curSlot
+
+getVerifyBlocksContext'
+    :: forall ctx m.
+       (MonadSlots ctx m, MonadDBRead m)
+    => Maybe SlotId
+    -> m VerifyBlocksContext
+getVerifyBlocksContext' vbcCurrentSlot = do
+    (vbcBlockVersion, vbcBlockVersionData) <- getAdoptedBVFull
+    return VerifyBlocksContext {..}
+
 
 -- | Set of constraints necessary to apply or rollback blocks at high-level.
 -- Also normalize mempool.
@@ -141,11 +180,13 @@ normalizeMempool = do
 -- Invariant: all blocks have the same epoch.
 applyBlocksUnsafe
     :: forall ctx m . (MonadBlockApply ctx m)
-    => ShouldCallBListener
+    => BlockVersion
+    -> BlockVersionData
+    -> ShouldCallBListener
     -> OldestFirst NE Blund
     -> Maybe PollModifier
     -> m ()
-applyBlocksUnsafe scb blunds pModifier = do
+applyBlocksUnsafe bv bvd scb blunds pModifier = do
     -- Check that all blunds have the same epoch.
     unless (null nextEpoch) $ assertionFailed $
         sformat ("applyBlocksUnsafe: tried to apply more than we should"%
@@ -165,29 +206,31 @@ applyBlocksUnsafe scb blunds pModifier = do
         (b@(Left _,_):|(x:xs)) -> app' (b:|[]) >> app' (x:|xs)
         _                      -> app blunds
   where
-    app x = applyBlocksDbUnsafeDo scb x pModifier
+    app x = applyBlocksDbUnsafeDo bv bvd scb x pModifier
     app' = app . OldestFirst
     (thisEpoch, nextEpoch) =
         spanSafe ((==) `on` view (_1 . epochIndexL)) $ getOldestFirst blunds
 
 applyBlocksDbUnsafeDo
     :: forall ctx m . (MonadBlockApply ctx m)
-    => ShouldCallBListener
+    => BlockVersion
+    -> BlockVersionData
+    -> ShouldCallBListener
     -> OldestFirst NE Blund
     -> Maybe PollModifier
     -> m ()
-applyBlocksDbUnsafeDo scb blunds pModifier = do
+applyBlocksDbUnsafeDo bv bvd scb blunds pModifier = do
     let blocks = fmap fst blunds
     -- Note: it's important to do 'slogApplyBlocks' first, because it
     -- puts blocks in DB.
     slogBatch <- slogApplyBlocks scb blunds
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
-    usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
+    usBatch <- SomeBatchOp <$> usApplyBlocks bv (map toUpdateBlock blocks) pModifier
     delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
     txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
     sscBatch <- SomeBatchOp <$>
         -- TODO: pass not only 'Nothing'
-        sscApplyBlocks (map toSscBlock blocks) Nothing
+        sscApplyBlocks bvd (map toSscBlock blocks) Nothing
     GS.writeBatchGState
         [ delegateBatch
         , usBatch

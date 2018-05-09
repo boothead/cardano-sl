@@ -25,9 +25,9 @@ import           System.Wlog (WithLogger, logDebug)
 
 import           Pos.Binary.Class (biSize)
 import           Pos.Block.Base (mkGenesisBlock, mkMainBlock)
-import           Pos.Block.Logic.Internal (MonadBlockApply, applyBlocksUnsafe, normalizeMempool)
+import           Pos.Block.Logic.Internal (MonadBlockApply, VerifyBlocksContext (..), applyBlocksUnsafe, normalizeMempool)
 import           Pos.Block.Logic.Util (calcChainQualityM)
-import           Pos.Block.Logic.VAR (verifyBlocksPrefix)
+import           Pos.Block.Logic.VAR (verifyBlocksPrefix, getVerifyBlocksContext)
 import           Pos.Block.Slog (HasSlogGState (..), ShouldCallBListener (..))
 import           Pos.Core (Blockchain (..), EpochIndex, EpochOrSlot (..), HasConfiguration,
                            HeaderHash, SlotId (..), chainQualityThreshold, epochIndexL, epochSlots,
@@ -48,7 +48,6 @@ import           Pos.Lrc (HasLrcContext, LrcModeFull, lrcSingleShot)
 import           Pos.Lrc.Context (lrcActionOnEpochReason)
 import qualified Pos.Lrc.DB as LrcDB
 import           Pos.Reporting (reportError)
-import           Pos.Slotting (MonadSlots (getCurrentSlot))
 import           Pos.Ssc.Base (defaultSscPayload, stripSscPayload)
 import           Pos.Ssc.Logic (sscGetLocalPayload)
 import           Pos.Ssc.Mem (MonadSscMem)
@@ -153,12 +152,17 @@ createGenesisBlockDo epoch = do
             LrcDB.getLeadersForEpoch
         let blk = mkGenesisBlock protocolMagic (Right tipHeader) epoch leaders
         let newTip = headerHash blk
-        curSlot <- getCurrentSlot
-        verifyBlocksPrefix curSlot (one (Left blk)) >>= \case
+        ctx <- getVerifyBlocksContext
+        verifyBlocksPrefix ctx (one (Left blk)) >>= \case
             Left err -> reportFatalError $ pretty err
             Right (undos, pollModifier) -> do
                 let undo = undos ^. _Wrapped . _neHead
-                applyBlocksUnsafe (ShouldCallBListener True) (one (Left blk, undo)) (Just pollModifier)
+                applyBlocksUnsafe
+                    (vbcBlockVersion ctx)
+                    (vbcBlockVersionData ctx)
+                    (ShouldCallBListener True)
+                    (one (Left blk, undo))
+                    (Just pollModifier)
                 normalizeMempool
                 pure (newTip, Just blk)
     logShouldNot =
@@ -349,14 +353,16 @@ applyCreatedBlock pske createdBlock = applyCreatedBlockDo False createdBlock
     slotId = createdBlock ^. BC.mainBlockSlot
     applyCreatedBlockDo :: Bool -> MainBlock -> m MainBlock
     applyCreatedBlockDo isFallback blockToApply = do
-        curSlot <- getCurrentSlot
-        verifyBlocksPrefix curSlot (one (Right blockToApply)) >>= \case
+        ctx <- getVerifyBlocksContext
+        verifyBlocksPrefix ctx (one (Right blockToApply)) >>= \case
             Left (pretty -> reason)
                 | isFallback -> onFailedFallback reason
                 | otherwise -> fallback reason
             Right (undos, pollModifier) -> do
                 let undo = undos ^. _Wrapped . _neHead
                 applyBlocksUnsafe
+                    (vbcBlockVersion ctx)
+                    (vbcBlockVersionData ctx)
                     (ShouldCallBListener True)
                     (one (Right blockToApply, undo))
                     (Just pollModifier)

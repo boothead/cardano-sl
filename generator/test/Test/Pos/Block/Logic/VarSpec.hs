@@ -22,7 +22,7 @@ import           Test.QuickCheck.Gen (Gen (MkGen))
 import           Test.QuickCheck.Monadic (assert, pick, pre)
 import           Test.QuickCheck.Random (QCGen)
 
-import           Pos.Block.Logic (verifyAndApplyBlocks, verifyBlocksPrefix)
+import           Pos.Block.Logic (getVerifyBlocksContext, verifyAndApplyBlocks, verifyBlocksPrefix)
 import           Pos.Block.Types (Blund)
 import           Pos.Core (GenesisData (..), HasConfiguration, blkSecurityParam, epochSlots,
                            genesisData, headerHash)
@@ -91,8 +91,8 @@ verifyEmptyMainBlock
     :: (HasConfigurations,HasCompileInfo) => BlockProperty ()
 verifyEmptyMainBlock = do
     emptyBlock <- fst <$> bpGenBlock (EnableTxPayload False) (InplaceDB False)
-    curSlot <- getCurrentSlot
-    whenLeftM (lift $ verifyBlocksPrefix Nothing (one emptyBlock)) $
+    ctx <- getVerifyBlocksContext
+    whenLeftM (lift $ verifyBlocksPrefix ctx (one emptyBlock)) $
         stopProperty . pretty
 
 verifyValidBlocks
@@ -112,9 +112,10 @@ verifyValidBlocks = do
                     let (otherBlocks', _) = span isRight otherBlocks
                     in block0 :| otherBlocks'
 
+    ctx <- getVerifyBlocksContext
     verRes <-
         lift $ satisfySlotCheck blocksToVerify $
-        verifyBlocksPrefix Nothing blocksToVerify
+        verifyBlocksPrefix ctx blocksToVerify
     whenLeft verRes $
         stopProperty . pretty
 
@@ -129,9 +130,9 @@ verifyAndApplyBlocksSpec = do
   where
     applier blunds = do
         let blocks = map fst blunds
-        curSlot <- getCurrentSlot
+        ctx <- getVerifyBlocksContext
         satisfySlotCheck blocks $
-           whenLeftM (verifyAndApplyBlocks Nothing True blocks) throwM
+           whenLeftM (verifyAndApplyBlocks ctx True blocks) throwM
     applyByOneOrAllAtOnceDesc =
         "verifying and applying blocks one by one leads " <>
         "to the same GState as verifying and applying them all at once " <>

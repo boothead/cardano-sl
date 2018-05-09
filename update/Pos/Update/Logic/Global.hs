@@ -29,6 +29,7 @@ import           Pos.Slotting (MonadSlotsData, slottingVar)
 import           Pos.Slotting.Types (SlottingData)
 import           Pos.Update.Configuration (HasUpdateConfiguration, lastKnownBlockVersion)
 import           Pos.Update.DB (UpdateOp (..))
+import qualified Pos.Update.DB as DB (getAdoptedBV)
 import           Pos.Update.Poll (BlockVersionState, ConfirmedProposalState, DBPoll, MonadPoll,
                                   PollModifier (..), PollT, PollVerFailure, ProposalState, USUndo,
                                   canCreateBlockBV, execPollT, execRollT, getAdoptedBV,
@@ -89,21 +90,22 @@ withUSLogger = modifyLoggerName (<> "us")
 -- epochs in memory, so adding new one can't make anything worse.
 usApplyBlocks
     :: (MonadThrow m, USGlobalApplyMode ctx m)
-    => OldestFirst NE UpdateBlock
+    => BlockVersion
+    -> OldestFirst NE UpdateBlock
     -> Maybe PollModifier
     -> m [DB.SomeBatchOp]
-usApplyBlocks blocks modifierMaybe =
+usApplyBlocks bv blocks modifierMaybe =
     withUSLogger $
     processModifier =<<
     case modifierMaybe of
         Nothing -> do
-            verdict <- usVerifyBlocks False blocks
+            verdict <- usVerifyBlocks False bv blocks
             either onFailure (return . fst) verdict
         Just modifier -> do
             -- TODO: I suppose such sanity checks should be done at higher
             -- level.
             inAssertMode $ do
-                verdict <- usVerifyBlocks False blocks
+                verdict <- usVerifyBlocks False bv blocks
                 whenLeft verdict $ \v -> onFailure v
             return modifier
   where
@@ -155,16 +157,15 @@ usVerifyBlocks ::
        , MonadReporting ctx m
        )
     => Bool
+    -> BlockVersion
     -> OldestFirst NE UpdateBlock
     -> m (Either PollVerFailure (PollModifier, OldestFirst NE USUndo))
-usVerifyBlocks verifyAllIsKnown blocks =
+usVerifyBlocks verifyAllIsKnown bv blocks =
     withUSLogger $
     reportUnexpectedError $
     processRes <$> run (runExceptT action)
   where
-    action = do
-        lastAdopted <- getAdoptedBV
-        mapM (verifyBlock lastAdopted verifyAllIsKnown) blocks
+    action = mapM (verifyBlock bv verifyAllIsKnown) blocks
     run :: PollT (DBPoll n) a -> n (a, PollModifier)
     run = runDBPoll . runPollT def
     processRes ::

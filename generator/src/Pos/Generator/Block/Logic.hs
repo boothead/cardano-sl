@@ -21,8 +21,8 @@ import           System.Wlog (logWarning)
 
 import           Pos.AllSecrets (HasAllSecrets (..), unInvSecretsMap)
 import           Pos.Block.Base (mkGenesisBlock)
-import           Pos.Block.Logic (applyBlocksUnsafe, createMainBlockInternal, normalizeMempool,
-                                  verifyBlocksPrefix)
+import           Pos.Block.Logic (VerifyBlocksContext (..), applyBlocksUnsafe, createMainBlockInternal, normalizeMempool,
+                                  verifyBlocksPrefix, getVerifyBlocksContext, getVerifyBlocksContext')
 import           Pos.Block.Slog (ShouldCallBListener (..))
 import           Pos.Block.Types (Blund)
 import           Pos.Communication.Message ()
@@ -196,21 +196,28 @@ genBlock eos = withCompileInfo def $ do
     genBlockNoApply eos tipHeader >>= \case
         Just block@Left {} -> do
             let slot0 = SlotId epoch minBound
-            fmap Just $ withCurrentSlot slot0 $ lift $ verifyAndApply (Just slot0) block
-        Just block@Right {} ->
-            fmap Just $ lift $ verifyAndApply Nothing block
+            ctx <- getVerifyBlocksContext' (Just slot0)
+            fmap Just $ withCurrentSlot slot0 $ lift $ verifyAndApply ctx block
+        Just block@Right {} -> do
+            ctx <- getVerifyBlocksContext
+            fmap Just $ lift $ verifyAndApply ctx block
         Nothing -> return Nothing
     where
     verifyAndApply ::
         HasCompileInfo =>
-        Maybe SlotId ->
+        VerifyBlocksContext ->
         Block -> BlockGenMode (MempoolExt m) m Blund
-    verifyAndApply curSlot block =
-        verifyBlocksPrefix curSlot (one block) >>= \case
+    verifyAndApply ctx block =
+        verifyBlocksPrefix ctx (one block) >>= \case
             Left err -> throwM (BGCreatedInvalid err)
             Right (undos, pollModifier) -> do
                 let undo = undos ^. _Wrapped . _neHead
                     blund = (block, undo)
-                applyBlocksUnsafe (ShouldCallBListener True) (one blund) (Just pollModifier)
+                applyBlocksUnsafe
+                    (vbcBlockVersion ctx)
+                    (vbcBlockVersionData ctx)
+                    (ShouldCallBListener True)
+                    (one blund)
+                    (Just pollModifier)
                 normalizeMempool
                 pure blund

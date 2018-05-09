@@ -7741,18 +7741,19 @@ inherit (pkgs) mesa;};
          , cardano-sl-core, cardano-sl-crypto, cardano-sl-db
          , cardano-sl-delegation, cardano-sl-infra, cardano-sl-networking
          , cardano-sl-ssc, cardano-sl-txp, cardano-sl-update
-         , cardano-sl-util, cardano-sl-wallet, conduit, constraints
-         , containers, data-default, directory, exceptions, formatting
-         , generics-sop, hspec, http-api-data, http-client, http-types
+         , cardano-sl-util, cardano-sl-wallet, conduit, connection
+         , constraints, containers, data-default, data-default-class
+         , directory, exceptions, formatting, generics-sop, hspec
+         , http-api-data, http-client, http-client-tls, http-types
          , ixset-typed, json-sop, lens, log-warper, memory, mmorph, mtl
          , neat-interpolation, network-transport, optparse-applicative
          , pretty-show, QuickCheck, quickcheck-instances, reflection
          , safe-exceptions, safecopy, serokell-util, servant, servant-client
          , servant-client-core, servant-quickcheck, servant-server
          , servant-swagger, servant-swagger-ui, stdenv, stm, string-conv
-         , swagger2, text, text-format, time, time-units, transformers
+         , swagger2, text, text-format, time, time-units, tls, transformers
          , universum, unliftio, unliftio-core, unordered-containers, vector
-         , wai, wai-cors, warp
+         , wai, wai-cors, wai-extra, warp, x509, x509-store
          }:
          mkDerivation {
            pname = "cardano-sl-wallet-new";
@@ -7766,23 +7767,25 @@ inherit (pkgs) mesa;};
              cardano-sl-crypto cardano-sl-db cardano-sl-infra
              cardano-sl-networking cardano-sl-ssc cardano-sl-txp
              cardano-sl-update cardano-sl-util cardano-sl-wallet conduit
-             containers data-default exceptions formatting generics-sop
-             http-api-data http-client http-types ixset-typed json-sop lens
-             log-warper memory mtl neat-interpolation network-transport
-             optparse-applicative QuickCheck reflection safe-exceptions safecopy
-             serokell-util servant servant-client servant-client-core
-             servant-server servant-swagger servant-swagger-ui string-conv
-             swagger2 text text-format time time-units transformers universum
-             unliftio unliftio-core unordered-containers vector wai wai-cors
-             warp
+             connection containers data-default data-default-class exceptions
+             formatting generics-sop http-api-data http-client http-client-tls
+             http-types ixset-typed json-sop lens log-warper memory mtl
+             neat-interpolation network-transport optparse-applicative
+             QuickCheck reflection safe-exceptions safecopy serokell-util
+             servant servant-client servant-client-core servant-server
+             servant-swagger servant-swagger-ui string-conv swagger2 text
+             text-format time time-units tls transformers universum unliftio
+             unliftio-core unordered-containers vector wai wai-cors warp x509
+             x509-store
            ];
            executableHaskellDepends = [
-             aeson aeson-diff aeson-pretty base cardano-sl cardano-sl-core
-             cardano-sl-infra cardano-sl-networking cardano-sl-ssc
-             cardano-sl-txp cardano-sl-util cardano-sl-wallet containers
-             exceptions formatting hspec http-client http-types lens log-warper
-             mtl optparse-applicative pretty-show QuickCheck servant
+             aeson aeson-diff aeson-pretty base bytestring cardano-sl
+             cardano-sl-core cardano-sl-infra cardano-sl-networking
+             cardano-sl-ssc cardano-sl-txp cardano-sl-util cardano-sl-wallet
+             containers exceptions formatting hspec http-client http-types lens
+             log-warper mtl optparse-applicative pretty-show QuickCheck servant
              servant-quickcheck servant-server stm text text-format universum
+             unordered-containers wai wai-cors wai-extra warp x509 x509-store
            ];
            testHaskellDepends = [
              aeson base bytestring cardano-sl cardano-sl-block cardano-sl-client

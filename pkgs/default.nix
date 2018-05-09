@@ -34313,15 +34313,19 @@ inherit (pkgs) which;};
          }) {};
       "servant-quickcheck" = callPackage
         ({ mkDerivation, aeson, base, base-compat, bytestring
-         , case-insensitive, clock, data-default-class, hspec, http-client
-         , http-media, http-types, mtl, pretty, process, QuickCheck, servant
-         , servant-client, servant-server, split, stdenv, string-conversions
-         , temporary, text, time, warp
+         , case-insensitive, clock, data-default-class, fetchgit, hspec
+         , http-client, http-media, http-types, mtl, pretty, process
+         , QuickCheck, servant, servant-client, servant-server, split
+         , stdenv, string-conversions, temporary, text, time, warp
          }:
          mkDerivation {
            pname = "servant-quickcheck";
            version = "0.0.4";
-           sha256 = "d19defae3714d3928b1e972d5f2fac4b3c1b8b31b2aba2949a6cb21bf0478d61";
+           src = fetchgit {
+             url = "https://github.com/parsonsmatt/servant-quickcheck";
+             sha256 = "1ni50jk23kmi0kp309g8cdks9biaphi6v2i46ikzmddxpvwm14sz";
+             rev = "38cd86bd2214dcf623b216f90d8fc9657549aed6";
+           };
            libraryHaskellDepends = [
              aeson base base-compat bytestring case-insensitive clock
              data-default-class hspec http-client http-media http-types mtl

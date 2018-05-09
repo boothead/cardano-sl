@@ -40,9 +40,9 @@ mkSpec mgr = do
             }
     describe "Servant API Properties" $ do
         it "V0 API follows best practices & is RESTful abiding" $ do
-            serverSatisfies (Proxy @V0.API) burl stdArgs (predicates mgr)
+            serverSatisfiesMgr (Proxy @V0.API) mgr burl stdArgs (predicates mgr)
         it "V1 API follows best practices & is RESTful abiding" $ do
-            serverSatisfies (Proxy @V1.API) burl stdArgs (predicates mgr)
+            serverSatisfiesMgr (Proxy @V1.API) mgr burl stdArgs (predicates mgr)
 --
 -- Instances to allow use of `servant-quickcheck`.
 --
